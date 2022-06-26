@@ -1,0 +1,9 @@
+{
+  "packageDirectories": [{
+    "path": ".tmp/retrieve",
+    "default": true
+  }],
+  "namespace": "",
+  "sfdcLoginUrl": "https://login.salesforce.com",
+  "sourceApiVersion": "54.0"
+}

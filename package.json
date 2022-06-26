@@ -1,0 +1,20 @@
+{
+  "name": "salesforce-fuse",
+  "version": "0.0.1",
+  "description": "Mount Salesforce Metadata as a filesystem",
+  "main": "src/driver.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node ."
+  },
+  "keywords": ["salesforce", "sfdx", "fuse", "filesystem"],
+  "author": "jim3692",
+  "license": "BSD-3-Clause",
+  "dependencies": {
+    "fuse-native": "^2.2.6",
+    "sfdx-node": "^3.5.0"
+  },
+  "devDependencies": {
+    "standard": "16"
+  }
+}
