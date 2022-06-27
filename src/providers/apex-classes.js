@@ -13,6 +13,8 @@ const CLASS_META_TEMPLATE = `<?xml version="1.0" encoding="UTF-8"?>
     <status>{{STATUS}}</status>
 </ApexClass>`
 
+let _cache = []
+
 function isApexClass (pathParts) {
   return pathParts.length === 2 && pathParts[0] === 'ApexClass' && /\.cls$/.test(pathParts[1])
 }
@@ -21,12 +23,21 @@ function isApexClassDir (pathParts) {
   return pathParts.length === 1 && pathParts[0] === 'ApexClass'
 }
 
+function getApexClasses () {
+  return _cache
+}
+
+function existsApexClass (className) {
+  return getApexClasses().find(cls => cls.fullName === className)
+}
+
 async function loadApexClasses () {
   const data = await sfdx.force.mdapi.listmetadata({ json: true, metadatatype: 'ApexClass', _rejectOnError: true })
     .catch(err => console.error(err))
 
   if (Array.isArray(data)) {
-    return data
+    _cache = data
+    return _cache
   }
 
   console.log(data)
@@ -45,18 +56,30 @@ async function loadApexClass (className) {
   return null
 }
 
-async function deployApexClass (className, data) {
+async function deployApexClass (className, stream) {
   const meta = CLASS_META_TEMPLATE
     .replace('{{VERSION}}', '54.0')
     .replace('{{STATUS}}', 'Active')
 
+  console.log({ meta })
+
   fs.writeFileSync(join(CLASSES_PATH, className + '.cls-meta.xml'), meta, 'utf8')
-  fs.writeFileSync(join(CLASSES_PATH, className + '.cls'), data, 'utf8')
+  const writeStream = fs.createWriteStream(join(CLASSES_PATH, className + '.cls'), { encoding: 'binary' })
+  stream.pipe(writeStream)
+
+  await new Promise((resolve, reject) => {
+    writeStream.on('finish', resolve)
+    writeStream.on('error', reject)
+  }).catch(err => console.error(err))
+
+  console.log('saved')
 
   const result = await sfdx.force.source.deploy({ json: true, metadata: 'ApexClass:' + className, _rejectOnError: true })
     .catch(err => console.error(err))
 
-  if (result) {
+  console.log({ result })
+
+  if (result && result.success) {
     return 'SUCCESS'
   }
 }
@@ -64,6 +87,8 @@ async function deployApexClass (className, data) {
 module.exports = {
   isApexClass,
   isApexClassDir,
+  getApexClasses,
+  existsApexClass,
   loadApexClasses,
   loadApexClass,
   deployApexClass

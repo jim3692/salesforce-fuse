@@ -8,7 +8,8 @@ const Fuse = require('fuse-native')
 const { sfdxDefaultPath } = require('./config')
 
 const { getCachedSfdxMetadataTypes, loadSfdxMetadataTypes, isMetadataType } = require('./providers/metadata-types')
-const { loadApexClass, loadApexClasses, isApexClass, isApexClassDir, deployApexClass } = require('./providers/apex-classes')
+const { existsApexClass, getApexClasses, loadApexClass, loadApexClasses, isApexClass, isApexClassDir, deployApexClass } = require('./providers/apex-classes')
+const { newTempFile, getFile, releaseFd } = require('./providers/file-descriptors')
 
 if (!fs.existsSync(join(__dirname, '..', sfdxDefaultPath))) {
   fs.mkdirSync(join(__dirname, '..', sfdxDefaultPath), { recursive: true })
@@ -30,7 +31,7 @@ const ops = {
     return cb(Fuse.ENOENT)
   },
   getattr: function (path, cb) {
-    console.log('getattr', { path })
+    // /\.git$/.test(path) || console.log('getattr', { path })
 
     if (path === '/') return cb(null, { mode: 16877, size: 4096 })
 
@@ -41,8 +42,11 @@ const ops = {
     }
 
     if (isApexClass(pathParts)) {
-      // TODO: Get actual file size
-      return cb(null, { mode: 33206, size: 4 * 1024 * 1024 })
+      const className = pathParts[1].split(/\.cls$/)[0]
+      if (existsApexClass(className)) {
+        // TODO: Get actual file size
+        return cb(null, { mode: 33206, size: 4 * 1024 * 1024 })
+      }
     }
 
     return cb(Fuse.ENOENT)
@@ -51,9 +55,19 @@ const ops = {
     console.log('open', { path, flags })
     return process.nextTick(cb, 0, 42)
   },
-  release: function (path, fd, cb) {
+  async release (path, fd, cb) {
     console.log('release', { path, fd })
-    return process.nextTick(cb, 0)
+
+    const file = getFile(fd)
+
+    if (file) {
+      const pathParts = file.path.split(sep).slice(1)
+      const className = pathParts[1].split(/\.cls$/)[0]
+      await deployApexClass(className, await file.getFileReadStream())
+    }
+
+    releaseFd(fd)
+    return cb(0)
   },
   async read (path, fd, buf, len, pos, cb) {
     const pathParts = path.split(sep).slice(1)
@@ -71,10 +85,20 @@ const ops = {
   },
   async write (path, fd, buffer, length, position, cb) {
     console.log('write', { path, fd, buffer: buffer.toString().substring(0, 10), length, position })
-    const pathParts = path.split(sep).slice(1)
-    const className = pathParts[1].split(/\.cls$/)[0]
-    const result = await deployApexClass(className, buffer)
-    return cb(result ? length : 0)
+
+    const file = getFile(fd)
+    console.log({ file: !!file })
+
+    if (!file) { return cb(0) }
+
+    file.writeStream.write(buffer, (err) => {
+      if (!err) {
+        return cb(length)
+      }
+
+      console.error(err)
+      cb(0)
+    })
   },
   truncate (path, size, cb) {
     console.log('truncate', { path, size })
@@ -83,6 +107,23 @@ const ops = {
   ftruncate (path, fd, size, cb) {
     console.log('truncate', { path, fd, size })
     return cb(0)
+  },
+  async create (path, mode, cb) {
+    console.log('create', { path, mode })
+
+    const pathParts = path.split(sep).slice(1)
+
+    let fd = 0
+
+    if (isApexClass(pathParts)) {
+      const className = pathParts[1].split(/\.cls$/)[0]
+      if (!existsApexClass(className)) {
+        getApexClasses().push({ fullName: className })
+        fd = (await newTempFile(path)).fd
+      }
+    }
+
+    return cb(0, fd)
   }
 }
 
