@@ -5,7 +5,7 @@ const { join, sep } = require('path')
 
 const Fuse = require('fuse-native')
 
-const project = require('../sfdx-project.json')
+const { sfdxDefaultPath } = require('./config')
 
 const { getSfdxMetadataTypes, loadSfdxMetadataTypes } = require('./providers/metadata-types')
 const { loadApexClass, loadApexClasses } = require('./providers/apex-classes')
