@@ -2,11 +2,15 @@ const sfdx = require('sfdx-node')
 
 let _cache = []
 
-module.exports.getSfdxMetadataTypes = function getCachedSfdxMetadataTypes () {
+function isMetadataType (pathParts) {
+  return pathParts.length === 1 && getCachedSfdxMetadataTypes().find(type => type.xmlName === pathParts[0])
+}
+
+function getCachedSfdxMetadataTypes () {
   return _cache
 }
 
-module.exports.loadSfdxMetadataTypes = async function loadSfdxMetadataTypes () {
+async function loadSfdxMetadataTypes () {
   const data = await sfdx.force.mdapi.describemetadata({ json: true, _rejectOnError: true })
     .then(data => data?.metadataObjects)
     .catch(err => console.error(err))
@@ -18,4 +22,10 @@ module.exports.loadSfdxMetadataTypes = async function loadSfdxMetadataTypes () {
 
   console.log(data)
   return []
+}
+
+module.exports = {
+  isMetadataType,
+  getCachedSfdxMetadataTypes,
+  loadSfdxMetadataTypes
 }

@@ -7,15 +7,8 @@ const Fuse = require('fuse-native')
 
 const { sfdxDefaultPath } = require('./config')
 
-const { getSfdxMetadataTypes, loadSfdxMetadataTypes } = require('./providers/metadata-types')
-const { loadApexClass, loadApexClasses } = require('./providers/apex-classes')
-
-const sfdxDefaultPath = project.packageDirectories?.find(dir => dir.default)?.path
-
-if (!sfdxDefaultPath) {
-  console.error('Could not find a default package directory in sfdx-project.json')
-  process.exit(1)
-}
+const { getCachedSfdxMetadataTypes, loadSfdxMetadataTypes, isMetadataType } = require('./providers/metadata-types')
+const { loadApexClass, loadApexClasses, isApexClass, isApexClassDir, deployApexClass } = require('./providers/apex-classes')
 
 if (!fs.existsSync(join(__dirname, '..', sfdxDefaultPath))) {
   fs.mkdirSync(join(__dirname, '..', sfdxDefaultPath), { recursive: true })
@@ -26,10 +19,10 @@ const ops = {
     const pathParts = path.split(sep).slice(1)
 
     if (pathParts.length === 1 && !pathParts[0]) {
-      return cb(null, getSfdxMetadataTypes().map(type => type.xmlName))
+      return cb(null, getCachedSfdxMetadataTypes().map(type => type.xmlName))
     }
 
-    if (pathParts.length === 1 && pathParts[0] === 'ApexClass') {
+    if (isApexClassDir(pathParts)) {
       const classes = await loadApexClasses()
       return cb(null, classes.map(cls => cls.fullName + '.cls'))
     }
@@ -37,39 +30,58 @@ const ops = {
     return cb(Fuse.ENOENT)
   },
   getattr: function (path, cb) {
+    console.log('getattr', { path })
+
     if (path === '/') return cb(null, { mode: 16877, size: 4096 })
 
     const pathParts = path.split(sep).slice(1)
 
-    if (pathParts.length === 1 && getSfdxMetadataTypes().find(type => type.xmlName === pathParts[0])) {
+    if (isMetadataType(pathParts)) {
       return cb(null, { mode: 16877, size: 4096 })
     }
 
-    if (pathParts.length === 2 && pathParts[0] === 'ApexClass') {
+    if (isApexClass(pathParts)) {
       // TODO: Get actual file size
-      return cb(null, { mode: 33206, size: 4096 })
+      return cb(null, { mode: 33206, size: 4 * 1024 * 1024 })
     }
 
     return cb(Fuse.ENOENT)
   },
   open: function (path, flags, cb) {
-    return cb(0, 42)
+    console.log('open', { path, flags })
+    return process.nextTick(cb, 0, 42)
   },
   release: function (path, fd, cb) {
-    return cb(0)
+    console.log('release', { path, fd })
+    return process.nextTick(cb, 0)
   },
   async read (path, fd, buf, len, pos, cb) {
     const pathParts = path.split(sep).slice(1)
 
-    if (pathParts.length === 2 && pathParts[0] === 'ApexClass' && /\.cls$/.test(pathParts[1])) {
+    if (isApexClass(pathParts)) {
       const classData = await loadApexClass(pathParts[1].split(/\.cls$/)[0])
 
       if (!classData) return cb(0)
 
       buf.write(classData)
-      return cb(classData.length)
+      return cb((new TextEncoder().encode(classData)).length)
     }
 
+    return cb(0)
+  },
+  async write (path, fd, buffer, length, position, cb) {
+    console.log('release', { path, fd, buffer: buffer.toString().substring(0, 10), length, position })
+    const pathParts = path.split(sep).slice(1)
+    const className = pathParts[1].split(/\.cls$/)[0]
+    const result = await deployApexClass(className, buffer)
+    return cb(result ? length : 0)
+  },
+  truncate (path, size, cb) {
+    console.log('truncate', { path, size })
+    return cb(0)
+  },
+  ftruncate (path, fd, size, cb) {
+    console.log('truncate', { path, fd, size })
     return cb(0)
   }
 }
@@ -78,7 +90,7 @@ const mnt = process.env.MOUNT_POINT || join(__dirname, '..', '.mnt')
 
 loadSfdxMetadataTypes()
   .then(() => {
-    const fuse = new Fuse(mnt, ops, { debug: !!process.env.NODE_ENV })
+    const fuse = new Fuse(mnt, ops, { debug: false })
     fuse.mount(function (err) {
       if (err) {
         console.error(err)
