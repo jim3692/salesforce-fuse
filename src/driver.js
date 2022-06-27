@@ -70,7 +70,7 @@ const ops = {
     return cb(0)
   },
   async write (path, fd, buffer, length, position, cb) {
-    console.log('release', { path, fd, buffer: buffer.toString().substring(0, 10), length, position })
+    console.log('write', { path, fd, buffer: buffer.toString().substring(0, 10), length, position })
     const pathParts = path.split(sep).slice(1)
     const className = pathParts[1].split(/\.cls$/)[0]
     const result = await deployApexClass(className, buffer)
